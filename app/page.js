@@ -1,103 +1,398 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState, useMemo } from "react";
+import { supabase } from "@/public/services/supabaseClient";
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import { EyeIcon } from "@heroicons/react/24/outline";
+
+// Helper: Calculate average and median
+function calcStats(values) {
+  if (!values || values.length === 0) return { avg: 0, median: 0 };
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median =
+    sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  return { avg: Number(avg.toFixed(2)), median: Number(median.toFixed(2)) };
+}
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [placements, setPlacements] = useState([]);
+  const [view, setView] = useState("overall");
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("students");
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
+  useEffect(() => {
+    const fetchData = async () => {
+      const { data, error } = await supabase.from("Offer").select("*");
+      if (!error && data) setPlacements(data);
+      setLoading(false);
+    };
+    fetchData();
+  }, []);
+
+  const getBranch = (reg) => (reg ? reg.substring(2, 5) : "UNK");
+
+  // --- Company Stats ---
+  const companyStats = useMemo(() => {
+    const stats = {};
+    placements.forEach((p) => {
+      const comp = p.company || "Unknown";
+      if (!stats[comp]) {
+        stats[comp] = {
+          company: comp,
+          total: 0,
+          month: new Date(p.created_at).toLocaleString("default", {
+            month: "short",
+            year: "numeric",
+          }),
+          ctc: 0,
+        };
+      }
+      stats[comp].total++;
+      stats[comp].ctc = Number(p.ctc) || stats[comp].ctc;
+    });
+    return Object.values(stats);
+  }, [placements]);
+
+  // --- Branch Stats ---
+  const branchStats = useMemo(() => {
+    const stats = {};
+    placements.forEach((p) => {
+      const branch = getBranch(p.reg_no);
+      if (!stats[branch]) stats[branch] = { branch, total: 0, ctcValues: [] };
+      stats[branch].total++;
+      stats[branch].ctcValues.push(Number(p.ctc) || 0);
+    });
+    return Object.values(stats).map((b) => ({
+      ...b,
+      ...calcStats(b.ctcValues),
+    }));
+  }, [placements]);
+
+  // --- Monthly Trends ---
+  const monthlyTrends = useMemo(() => {
+    const stats = {};
+    placements.forEach((p) => {
+      const d = new Date(p.created_at);
+      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+      const label = d.toLocaleString("default", {
+        month: "short",
+        year: "numeric",
+      });
+      if (!stats[key]) stats[key] = { month: label, total: 0 };
+      stats[key].total++;
+    });
+    return Object.values(stats);
+  }, [placements]);
+
+  // --- Filter & Sort ---
+  const filterAndSort = (data, type) => {
+    let filtered = data;
+    if (search) {
+      filtered = data.filter((d) =>
+        (type === "company" ? d.company : d.branch)
+          .toLowerCase()
+          .includes(search.toLowerCase())
+      );
+    }
+    if (sortBy === "students") {
+      return [...filtered].sort((a, b) => b.total - a.total);
+    } else if (sortBy === "avg") {
+      return [...filtered].sort((a, b) => (b.avg || 0) - (a.avg || 0));
+    } else if (sortBy === "median") {
+      return [...filtered].sort((a, b) => (b.median || 0) - (a.median || 0));
+    }
+    return filtered;
+  };
+
+  const filteredCompanies = filterAndSort(companyStats, "company");
+  const filteredBranches = filterAndSort(branchStats, "branch");
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gray-900 text-white">
+        <p>Loading data...</p>
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-gray-900 text-white p-8 relative">
+      {/* Header with Eye button */}
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-4xl font-bold text-center flex-1">
+          Placement Tracker
+        </h1>
+        <button
+          onClick={() => setShowDisclaimer(true)}
+          className="p-2 bg-gray-800 rounded-full hover:bg-gray-700 transition"
+          title="View Disclaimer"
         >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+          <EyeIcon className="h-6 w-6 text-white" />
+        </button>
+      </div>
+
+      {/* Tab Switcher */}
+      <div className="flex justify-center mb-6 space-x-4">
+        {["overall", "company", "branch"].map((tab) => (
+          <button
+            key={tab}
+            onClick={() => {
+              setView(tab);
+              setSearch("");
+            }}
+            className={`px-4 py-2 rounded-lg transition ${
+              view === tab
+                ? "bg-blue-600 text-white"
+                : "bg-gray-700 hover:bg-gray-600"
+            }`}
+          >
+            {tab.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {/* Search & Sort Bar */}
+      {view !== "overall" && (
+        <div className="flex flex-col md:flex-row justify-center mb-6 space-y-2 md:space-y-0 md:space-x-4">
+          <input
+            type="text"
+            placeholder={`Search ${view}...`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="px-4 py-2 w-72 rounded-lg bg-gray-800 border border-gray-600 text-white placeholder-gray-400"
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="px-4 py-2 w-48 rounded-lg bg-gray-800 border border-gray-600 text-white"
+          >
+            <option value="students">Sort by Students</option>
+            <option value="avg">Sort by Avg CTC</option>
+            <option value="median">Sort by Median CTC</option>
+          </select>
+        </div>
+      )}
+
+      {/* ====================== OVERALL VIEW ====================== */}
+      {view === "overall" && (
+        <div className="space-y-12">
+          {/* Overall Stats */}
+          <div className="text-center space-y-2 mb-6">
+            {(() => {
+              const ctcValues = placements.map((p) => Number(p.ctc) || 0);
+              const { avg, median } = calcStats(ctcValues);
+              return (
+                <>
+                  <div className="text-xl">
+                    Total Offers: {placements.length}
+                  </div>
+                  <div className="text-lg text-gray-300">
+                    Avg CTC: <span className="text-green-400">{avg} LPA</span> |{" "}
+                    Median CTC:{" "}
+                    <span className="text-blue-400">{median} LPA</span>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+
+          {/* Monthly Trends */}
+          <div>
+            <h2 className="text-2xl font-bold mb-4 text-center">
+              Monthly Trends
+            </h2>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={monthlyTrends}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                <XAxis dataKey="month" stroke="#ccc" />
+                <YAxis stroke="#ccc" />
+                <Tooltip />
+                <Line type="monotone" dataKey="total" stroke="#82ca9d" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Branch Overview */}
+          <div>
+            <h2 className="text-2xl font-bold mb-4 text-center">
+              Branch Overview
+            </h2>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={branchStats}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                <XAxis dataKey="branch" stroke="#ccc" />
+                <YAxis stroke="#ccc" />
+                <Tooltip />
+                <Bar dataKey="total" fill="#8884d8" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* ====================== COMPANY VIEW ====================== */}
+      {view === "company" && (
+        <div className="space-y-8">
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={filteredCompanies}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+              <XAxis dataKey="company" stroke="#ccc" />
+              <YAxis stroke="#ccc" />
+              <Tooltip />
+              <Bar dataKey="total" fill="#82ca9d" />
+            </BarChart>
+          </ResponsiveContainer>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredCompanies.map((c, idx) => {
+              const companyPlacements = placements.filter(
+                (p) => p.company === c.company
+              );
+              const branchDist = companyPlacements.reduce((acc, p) => {
+                const branch = getBranch(p.reg_no);
+                acc[branch] = (acc[branch] || 0) + 1;
+                return acc;
+              }, {});
+              const branchArray = Object.entries(branchDist).map(
+                ([branch, count]) => ({ branch, count })
+              );
+
+              return (
+                <div
+                  key={c.company + idx}
+                  className="bg-gray-800 p-4 rounded-xl shadow hover:scale-105 transition"
+                >
+                  <h2 className="text-xl font-bold mb-2">{c.company}</h2>
+                  <p className="mb-2">Total Students: {c.total}</p>
+                  <p className="mb-2 text-sm text-gray-400">Month: {c.month}</p>
+                  <p className="text-sm text-gray-300 mb-2">
+                    CTC: <span className="text-green-400">{c.ctc} LPA</span>
+                  </p>
+
+                  <details className="bg-gray-900 rounded-lg p-2 cursor-pointer">
+                    <summary className="text-sm text-gray-300 hover:text-white mb-2">
+                      Branch Distribution
+                    </summary>
+                    <div className="mt-2 space-y-1 max-h-40 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700">
+                      {branchArray.map((b, i) => (
+                        <div
+                          key={i}
+                          className="flex justify-between bg-gray-700 rounded-md px-2 py-1 text-sm"
+                        >
+                          <span>{b.branch}</span>
+                          <span className="font-bold text-green-400">
+                            {b.count}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ====================== BRANCH VIEW ====================== */}
+      {view === "branch" && (
+        <div className="space-y-8">
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={filteredBranches}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+              <XAxis dataKey="branch" stroke="#ccc" />
+              <YAxis stroke="#ccc" />
+              <Tooltip />
+              <Bar dataKey="total" fill="#8884d8" />
+            </BarChart>
+          </ResponsiveContainer>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            {filteredBranches.map((b, idx) => {
+              const branchPlacements = placements.filter(
+                (p) => getBranch(p.reg_no) === b.branch
+              );
+              const companyDist = branchPlacements.reduce((acc, p) => {
+                acc[p.company] = (acc[p.company] || 0) + 1;
+                return acc;
+              }, {});
+              const companyArray = Object.entries(companyDist).map(
+                ([company, count]) => ({ company, count })
+              );
+
+              return (
+                <div
+                  key={b.branch + idx}
+                  className="bg-gray-800 p-4 rounded-xl shadow hover:scale-105 transition text-center"
+                >
+                  <h2 className="text-xl font-bold mb-2">{b.branch}</h2>
+                  <p className="mb-2">{b.total} Students Placed</p>
+                  <p className="text-sm text-gray-300 mb-2">
+                    Avg: <span className="text-green-400">{b.avg} LPA</span> |{" "}
+                    Median:{" "}
+                    <span className="text-blue-400">{b.median} LPA</span>
+                  </p>
+
+                  <details className="bg-gray-900 rounded-lg p-2 cursor-pointer">
+                    <summary className="text-sm text-gray-300 hover:text-white mb-2">
+                      Company Distribution
+                    </summary>
+                    <div className="mt-2 space-y-1 max-h-40 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700">
+                      {companyArray.map((c, i) => (
+                        <div
+                          key={i}
+                          className="flex justify-between bg-gray-700 rounded-md px-2 py-1 text-sm"
+                        >
+                          <span>{c.company}</span>
+                          <span className="font-bold text-blue-400">
+                            {c.count}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Disclaimer Modal */}
+      {showDisclaimer && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-60 z-50">
+          <div className="bg-gray-900 p-6 rounded-xl max-w-lg text-white shadow-lg space-y-4">
+            <h2 className="text-xl font-bold">Disclaimer</h2>
+            <p className="text-gray-300 text-sm leading-relaxed">
+              The placement data shown is for informational purposes only and has been scra.
+              Figures like CTC, company distributions, and offers may vary and
+              are subject to verification by the placement cell.
+            </p>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setShowDisclaimer(false)}
+                className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-500 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
   );
 }
