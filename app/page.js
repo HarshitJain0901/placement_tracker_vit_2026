@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { supabase } from "@/services/supabaseClient";
+import { supabase } from "@/public/services/supabaseClient";
 import {
   LineChart,
   Line,
