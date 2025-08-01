@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { supabase } from "@/public/services/supabaseClient";
+import { supabase } from "@/services/supabaseClient";
 import {
   LineChart,
   Line,
@@ -28,24 +28,51 @@ function calcStats(values) {
 
 export default function Home() {
   const [placements, setPlacements] = useState([]);
+  const [campusStats, setCampusStats] = useState([]);
+
   const [view, setView] = useState("overall");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("students");
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [selectedRange, setSelectedRange] = useState("all");
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data, error } = await supabase.from("Offer").select("*");
-      if (!error && data) setPlacements(data);
+      const [offerRes, campusRes] = await Promise.all([
+        supabase.from("Offer").select("*"),
+        supabase.from("Campus_Data").select("*"),
+      ]);
+
+      if (!offerRes.error && offerRes.data) {
+        setPlacements(offerRes.data);
+      }
+
+      if (!campusRes.error && campusRes.data) {
+        const stats = campusRes.data.map((row) => ({
+          campus: row.Campus,
+          students: row.Students,
+        }));
+        setCampusStats(stats);
+      }
+
       setLoading(false);
     };
+
     fetchData();
   }, []);
 
   const getBranch = (reg) => (reg ? reg.substring(2, 5) : "UNK");
 
-  // --- Company Stats ---
+  const getCtcRange = (ctc) => {
+    if (ctc < 5) return "<5";
+    if (ctc < 10) return "5-10";
+    if (ctc < 15) return "10-15";
+    if (ctc < 20) return "15-20";
+    if (ctc < 30) return "20+";
+    return "30+";
+  };
+
   const companyStats = useMemo(() => {
     const stats = {};
     placements.forEach((p) => {
@@ -59,15 +86,17 @@ export default function Home() {
             year: "numeric",
           }),
           ctc: 0,
+          ctcRange: "",
         };
       }
+      const ctc = Number(p.ctc) || 0;
       stats[comp].total++;
-      stats[comp].ctc = Number(p.ctc) || stats[comp].ctc;
+      stats[comp].ctc = ctc;
+      stats[comp].ctcRange = getCtcRange(ctc);
     });
     return Object.values(stats);
   }, [placements]);
 
-  // --- Branch Stats ---
   const branchStats = useMemo(() => {
     const stats = {};
     placements.forEach((p) => {
@@ -82,7 +111,6 @@ export default function Home() {
     }));
   }, [placements]);
 
-  // --- Monthly Trends ---
   const monthlyTrends = useMemo(() => {
     const stats = {};
     placements.forEach((p) => {
@@ -98,7 +126,6 @@ export default function Home() {
     return Object.values(stats);
   }, [placements]);
 
-  // --- Filter & Sort ---
   const filterAndSort = (data, type) => {
     let filtered = data;
     if (search) {
@@ -107,6 +134,9 @@ export default function Home() {
           .toLowerCase()
           .includes(search.toLowerCase())
       );
+    }
+    if (type === "company" && selectedRange !== "all") {
+      filtered = filtered.filter((d) => d.ctcRange === selectedRange);
     }
     if (sortBy === "students") {
       return [...filtered].sort((a, b) => b.total - a.total);
@@ -184,6 +214,21 @@ export default function Home() {
             <option value="avg">Sort by Avg CTC</option>
             <option value="median">Sort by Median CTC</option>
           </select>
+          {view === "company" && (
+            <select
+              value={selectedRange}
+              onChange={(e) => setSelectedRange(e.target.value)}
+              className="px-4 py-2 w-48 rounded-lg bg-gray-800 border border-gray-600 text-white"
+            >
+              <option value="all">All CTC Ranges</option>
+              <option value="<5">&lt; 5 LPA</option>
+              <option value="5-10">5 - 10 LPA</option>
+              <option value="10-15">10 - 15 LPA</option>
+              <option value="15-20">15 - 20 LPA</option>
+              <option value="20+">20 - 30 LPA</option>
+              <option value="30+">30+ LPA</option>
+            </select>
+          )}
         </div>
       )}
 
@@ -226,6 +271,22 @@ export default function Home() {
             </ResponsiveContainer>
           </div>
 
+          {/* Campus vs Students Bar Chart */}
+          <div>
+            <h2 className="text-2xl font-bold mb-4 text-center">
+              Campus-wise Placement
+            </h2>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={campusStats}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                <XAxis dataKey="campus" stroke="#ccc" />
+                <YAxis stroke="#ccc" />
+                <Tooltip />
+                <Bar dataKey="students" fill="#fbbf24" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
           {/* Branch Overview */}
           <div>
             <h2 className="text-2xl font-bold mb-4 text-center">
@@ -250,9 +311,23 @@ export default function Home() {
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={filteredCompanies}>
               <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-              <XAxis dataKey="company" stroke="#ccc" />
+              <XAxis
+                dataKey="company"
+                stroke="#ccc"
+                interval={0}
+                tickFormatter={(value) =>
+                  value.length > 10 ? value.slice(0, 10) + "…" : value
+                }
+              />
               <YAxis stroke="#ccc" />
-              <Tooltip />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "#1f2937",
+                  borderColor: "#374151",
+                }}
+                labelStyle={{ color: "#fff" }}
+                formatter={(value) => [`${value} Students`, "Placements"]}
+              />
               <Bar dataKey="total" fill="#82ca9d" />
             </BarChart>
           </ResponsiveContainer>
@@ -378,9 +453,10 @@ export default function Home() {
           <div className="bg-gray-900 p-6 rounded-xl max-w-lg text-white shadow-lg space-y-4">
             <h2 className="text-xl font-bold">Disclaimer</h2>
             <p className="text-gray-300 text-sm leading-relaxed">
-              The placement data shown is for informational purposes only and has been scra.
-              Figures like CTC, company distributions, and offers may vary and
-              are subject to verification by the placement cell.
+              The placement data shown is for informational purposes only and
+              has been scraped. Figures like CTC, company distributions, and
+              offers may vary and are subject to verification by the placement
+              cell.
             </p>
             <div className="flex justify-end">
               <button
