@@ -310,26 +310,29 @@ export default function Home() {
         <div className="space-y-8">
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={filteredCompanies}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-              <XAxis
-                dataKey="company"
-                stroke="#ccc"
-                interval={0}
-                tickFormatter={(value) =>
-                  value.length > 10 ? value.slice(0, 10) + "…" : value
-                }
-              />
-              <YAxis stroke="#ccc" />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#1f2937",
-                  borderColor: "#374151",
-                }}
-                labelStyle={{ color: "#fff" }}
-                formatter={(value) => [`${value} Students`, "Placements"]}
-              />
-              <Bar dataKey="total" fill="#82ca9d" />
-            </BarChart>
+  <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+  <XAxis
+    dataKey="company"
+    stroke="#ccc"
+    interval={0}
+    tickFormatter={(value) =>
+      value.length > 10 ? value.slice(0, 10) + "…" : value
+    }
+    tick={{ angle: -45, textAnchor: "end", fill: "#ccc" }} // rotate labels
+    height={80} // extra space at bottom
+  />
+  <YAxis stroke="#ccc" />
+  <Tooltip
+    contentStyle={{
+      backgroundColor: "#1f2937",
+      borderColor: "#374151",
+    }}
+    labelStyle={{ color: "#fff" }}
+    formatter={(value) => [`${value} Students`, "Placements"]}
+  />
+  <Bar dataKey="total" fill="#82ca9d" />
+</BarChart>
+
           </ResponsiveContainer>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
