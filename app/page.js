@@ -318,7 +318,7 @@ export default function Home() {
     tickFormatter={(value) =>
       value.length > 10 ? value.slice(0, 10) + "…" : value
     }
-    tick={{ angle: -45, textAnchor: "end", fill: "#ccc" }} // rotate labels
+    tick={{ angle: -90, textAnchor: "end", fill: "#ccc" }} // rotate labels
     height={80} // extra space at bottom
   />
   <YAxis stroke="#ccc" />
