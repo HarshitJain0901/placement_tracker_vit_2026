@@ -26,6 +26,30 @@ function calcStats(values) {
   return { avg: Number(avg.toFixed(2)), median: Number(median.toFixed(2)) };
 }
 
+// Helper: fetch all rows in chunks (avoids 1000 row cap)
+async function fetchAllRows(tableName, chunkSize = 1000) {
+  let allRows = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select("*")
+      .range(from, from + chunkSize - 1);
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) break;
+
+    allRows = allRows.concat(data);
+
+    if (data.length < chunkSize) break; // last batch reached
+    from += chunkSize;
+  }
+
+  return allRows;
+}
+
 export default function Home() {
   const [placements, setPlacements] = useState([]);
   const [campusStats, setCampusStats] = useState([]);
@@ -39,24 +63,24 @@ export default function Home() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const [offerRes, campusRes] = await Promise.all([
-        supabase.from("Offer").select("*"),
-        supabase.from("Campus_Data").select("*"),
-      ]);
+      try {
+        const [offers, campuses] = await Promise.all([
+          fetchAllRows("Offer"),
+          fetchAllRows("Campus_Data"),
+        ]);
 
-      if (!offerRes.error && offerRes.data) {
-        setPlacements(offerRes.data);
-      }
+        setPlacements(offers);
 
-      if (!campusRes.error && campusRes.data) {
-        const stats = campusRes.data.map((row) => ({
+        const stats = campuses.map((row) => ({
           campus: row.Campus,
           students: row.Students,
         }));
         setCampusStats(stats);
+      } catch (err) {
+        console.error("Error fetching data:", err);
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     };
 
     fetchData();
@@ -310,29 +334,28 @@ export default function Home() {
         <div className="space-y-8">
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={filteredCompanies}>
-  <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-  <XAxis
-    dataKey="company"
-    stroke="#ccc"
-    interval={0}
-    tickFormatter={(value) =>
-      value.length > 10 ? value.slice(0, 10) + "…" : value
-    }
-    tick={{ angle: -90, textAnchor: "end", fill: "#ccc" }} // rotate labels
-    height={80} // extra space at bottom
-  />
-  <YAxis stroke="#ccc" />
-  <Tooltip
-    contentStyle={{
-      backgroundColor: "#1f2937",
-      borderColor: "#374151",
-    }}
-    labelStyle={{ color: "#fff" }}
-    formatter={(value) => [`${value} Students`, "Placements"]}
-  />
-  <Bar dataKey="total" fill="#82ca9d" />
-</BarChart>
-
+              <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+              <XAxis
+                dataKey="company"
+                stroke="#ccc"
+                interval={0}
+                tickFormatter={(value) =>
+                  value.length > 10 ? value.slice(0, 10) + "…" : value
+                }
+                tick={{ angle: -90, textAnchor: "end", fill: "#ccc" }}
+                height={80}
+              />
+              <YAxis stroke="#ccc" />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "#1f2937",
+                  borderColor: "#374151",
+                }}
+                labelStyle={{ color: "#fff" }}
+                formatter={(value) => [`${value} Students`, "Placements"]}
+              />
+              <Bar dataKey="total" fill="#82ca9d" />
+            </BarChart>
           </ResponsiveContainer>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -454,21 +477,19 @@ export default function Home() {
       {showDisclaimer && (
         <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-60 z-50">
           <div className="bg-gray-900 p-6 rounded-xl max-w-lg text-white shadow-lg space-y-4">
-            <h2 className="text-xl font-bold">Disclaimer</h2>
-            <p className="text-gray-300 text-sm leading-relaxed">
-              The placement data shown is for informational purposes only and
-              has been scraped. Figures like CTC, company distributions, and
-              offers may vary and are subject to verification by the placement
-              cell.
+            <h2 className="text-2xl font-bold">Disclaimer</h2>
+            <p className="text-sm text-gray-300">
+              The data presented in this dashboard is for informational
+              purposes only. It may not fully represent the official placement
+              statistics. Please verify with the placement cell for accurate
+              details.
             </p>
-            <div className="flex justify-end">
-              <button
-                onClick={() => setShowDisclaimer(false)}
-                className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-500 transition"
-              >
-                Close
-              </button>
-            </div>
+            <button
+              onClick={() => setShowDisclaimer(false)}
+              className="mt-4 px-4 py-2 bg-red-600 rounded-lg hover:bg-red-500"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
