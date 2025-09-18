@@ -136,19 +136,23 @@ export default function Home() {
   }, [placements]);
 
   const monthlyTrends = useMemo(() => {
-    const stats = {};
-    placements.forEach((p) => {
-      const d = new Date(p.created_at);
-      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
-      const label = d.toLocaleString("default", {
-        month: "short",
-        year: "numeric",
-      });
-      if (!stats[key]) stats[key] = { month: label, total: 0 };
-      stats[key].total++;
+  const stats = {};
+  placements.forEach((p) => {
+    const d = new Date(p.created_at);
+    const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+    const label = d.toLocaleString("default", {
+      month: "short",
+      year: "numeric",
     });
-    return Object.values(stats);
-  }, [placements]);
+    if (!stats[key]) stats[key] = { month: label, year: d.getFullYear(), m: d.getMonth() + 1, total: 0 };
+    stats[key].total++;
+  });
+
+  return Object.values(stats).sort(
+    (a, b) => a.year - b.year || a.m - b.m
+  );
+}, [placements]);
+
 
   const filterAndSort = (data, type) => {
     let filtered = data;
