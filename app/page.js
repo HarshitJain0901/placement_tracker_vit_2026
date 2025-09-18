@@ -69,9 +69,9 @@ export default function Home() {
           fetchAllRows("Campus_Data"),
         ]);
 
-        setPlacements(offers);
+        setPlacements(offers || []);
 
-        const stats = campuses.map((row) => ({
+        const stats = (campuses || []).map((row) => ({
           campus: row.Campus,
           students: row.Students,
         }));
@@ -97,30 +97,58 @@ export default function Home() {
     return "30+";
   };
 
+  // COMPANY STATS: now computes avg & median so sorting by avg works correctly
   const companyStats = useMemo(() => {
     const stats = {};
     placements.forEach((p) => {
       const comp = p.company || "Unknown";
+      const createdAt = p.created_at || p.createdAt || null;
+      const d = createdAt ? new Date(createdAt) : new Date(0);
+      const monthLabel = d.toLocaleString("default", {
+        month: "short",
+        year: "numeric",
+      });
+      const monthKey = `${d.getFullYear()}-${d.getMonth() + 1}`;
+
       if (!stats[comp]) {
         stats[comp] = {
           company: comp,
           total: 0,
-          month: new Date(p.created_at).toLocaleString("default", {
-            month: "short",
-            year: "numeric",
-          }),
-          ctc: 0,
-          ctcRange: "",
+          ctcValues: [],
+          month: monthLabel,
+          monthKey,
         };
       }
+
       const ctc = Number(p.ctc) || 0;
       stats[comp].total++;
-      stats[comp].ctc = ctc;
-      stats[comp].ctcRange = getCtcRange(ctc);
+      stats[comp].ctcValues.push(ctc);
+
+      // keep the latest month label (by numeric key)
+      if (!stats[comp].monthKey || monthKey > stats[comp].monthKey) {
+        stats[comp].month = monthLabel;
+        stats[comp].monthKey = monthKey;
+      }
     });
-    return Object.values(stats);
+
+    return Object.values(stats).map((s) => {
+      const { avg, median } = calcStats(s.ctcValues);
+      // keep a representative single ctc value for display (max here)
+      const representativeCtc =
+        s.ctcValues.length > 0 ? Math.max(...s.ctcValues) : 0;
+      return {
+        company: s.company,
+        total: s.total,
+        month: s.month,
+        ctc: representativeCtc,
+        ctcRange: getCtcRange(representativeCtc),
+        avg,
+        median,
+      };
+    });
   }, [placements]);
 
+  // BRANCH STATS: unchanged but already computes avg/median
   const branchStats = useMemo(() => {
     const stats = {};
     placements.forEach((p) => {
@@ -135,24 +163,26 @@ export default function Home() {
     }));
   }, [placements]);
 
+  // MONTHLY TRENDS: collect, then sort by year/month, then map to month+total
   const monthlyTrends = useMemo(() => {
-  const stats = {};
-  placements.forEach((p) => {
-    const d = new Date(p.created_at);
-    const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
-    const label = d.toLocaleString("default", {
-      month: "short",
-      year: "numeric",
+    const stats = {};
+    placements.forEach((p) => {
+      const createdAt = p.created_at || p.createdAt || null;
+      const d = createdAt ? new Date(createdAt) : new Date(0);
+      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+      const label = d.toLocaleString("default", {
+        month: "short",
+        year: "numeric",
+      });
+      if (!stats[key])
+        stats[key] = { month: label, year: d.getFullYear(), m: d.getMonth() + 1, total: 0 };
+      stats[key].total++;
     });
-    if (!stats[key]) stats[key] = { month: label, year: d.getFullYear(), m: d.getMonth() + 1, total: 0 };
-    stats[key].total++;
-  });
 
-  return Object.values(stats).sort(
-    (a, b) => a.year - b.year || a.m - b.m
-  );
-}, [placements]);
-
+    return Object.values(stats)
+      .sort((a, b) => a.year - b.year || a.m - b.m)
+      .map(({ month, total }) => ({ month, total }));
+  }, [placements]);
 
   const filterAndSort = (data, type) => {
     let filtered = data;
